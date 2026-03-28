@@ -22,7 +22,7 @@ if(UNIX AND NOT APPLE)
     set(LINUX TRUE)
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -Wall -Wfatal-errors -march=native")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -Wall -Wfatal-errors -march=x86-64-v3")
 
 # Enable OpenMP if available
 include(CheckCXXCompilerFlag)

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 #include "../util.h"
@@ -53,7 +54,7 @@ class DynamicPGMM2 : public Competitor<KeyType, SearchClass> {
     pgm_.insert(data.key, data.value);
   }
 
-  auto begin() const { return pgm_.begin(); }
+  auto begin() const { return pgm_.lower_bound(std::numeric_limits<KeyType>::min()); }
   auto end() const { return pgm_.end(); }
   void clear() { pgm_ = decltype(pgm_)(); }
 

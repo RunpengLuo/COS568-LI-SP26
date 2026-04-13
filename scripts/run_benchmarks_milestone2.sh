@@ -8,7 +8,7 @@ if [ ! -f $BENCHMARK ]; then
     exit 1
 fi
 
-mkdir -p ./results_m2
+mkdir -p ./results ./results_m2
 
 DATA=fb_100M_public_uint64
 INSERT_HEAVY=./data/${DATA}_ops_2M_0.000000rq_0.500000nl_0.900000i_0m_mix
@@ -27,8 +27,7 @@ done
 
 echo "===================Milestone 2 benchmarking complete!===================="
 
-mv ./data/*_mix.csv ./results_m2/ 2>/dev/null || true
-mv ./results/*_mix.csv ./results_m2/ 2>/dev/null || true
+mv ./results/*_mix_results_table.csv ./results_m2/ 2>/dev/null || true
 
 for FILE in ./results_m2/*.csv
 do

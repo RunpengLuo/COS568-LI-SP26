@@ -51,19 +51,27 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   }
 
   size_t EqualityLookup(const KeyType& key, uint32_t tid) const {
-    if (size_t v = ProbeBuffer(active_.load(std::memory_order_acquire),
+    // LIPP-first hot path. The benchmark uses value = key, so a key present
+    // in both LIPP (bulk-loaded) and DPGM (re-inserted) yields the same
+    // value either way; we can skip the DPGM probes whenever LIPP hits.
+    size_t v = lipp_.EqualityLookup(key, tid);
+    if (v != util::NOT_FOUND) return v;
+
+    // LIPP miss: the key can only live in DPGM (newly-inserted, not yet
+    // flushed). Fall through to the Bloom-guarded DPGM probes.
+    if (size_t r = ProbeBuffer(active_.load(std::memory_order_acquire),
                                 active_bloom_.load(std::memory_order_acquire),
                                 key, tid);
-        v != util::OVERFLOW) {
-      return v;
+        r != util::OVERFLOW) {
+      return r;
     }
-    if (size_t v = ProbeBuffer(flushing_.load(std::memory_order_acquire),
+    if (size_t r = ProbeBuffer(flushing_.load(std::memory_order_acquire),
                                 flushing_bloom_.load(std::memory_order_acquire),
                                 key, tid);
-        v != util::OVERFLOW) {
-      return v;
+        r != util::OVERFLOW) {
+      return r;
     }
-    return lipp_.EqualityLookup(key, tid);
+    return util::NOT_FOUND;
   }
 
   void Insert(const KeyValue<KeyType>& kv, uint32_t tid) {

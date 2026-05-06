@@ -7,8 +7,6 @@ set -e
 
 echo "=== Milestone 3 prep (login-node only) ==="
 
-chmod +x scripts/*.sh
-
 if ! command -v cmake >/dev/null 2>&1; then
     echo "ERROR: cmake not found in PATH. Are you on the login node?"
     echo "       module load cmake     # if needed"

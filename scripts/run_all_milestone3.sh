@@ -7,8 +7,6 @@ set -e
 
 echo "=== Milestone 3 benchmark run (sbatch) ==="
 
-chmod +x scripts/*.sh
-
 if [ ! -f build/benchmark_m3 ]; then
     echo "ERROR: build/benchmark_m3 missing."
     echo "       Run scripts/build_milestone3.sh on the login node first."

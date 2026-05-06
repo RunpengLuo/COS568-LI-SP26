@@ -5,7 +5,6 @@
 #include <atomic>
 #include <cstdlib>
 #include <limits>
-#include <shared_mutex>
 #include <utility>
 #include <vector>
 
@@ -13,6 +12,18 @@
 #include "base.h"
 #include "pgm_index_dynamic.hpp"
 
+// Lock-free DPGM wrapper using a seqlock to coordinate the rare
+// foreground-read-vs-worker-Clear race on the *flushing* buffer.
+//
+// Concurrency model assumed by HybridPGMLIPPM3:
+//   - The *active* buffer is touched exclusively by the single foreground
+//     thread (Insert + EqualityLookup). Sequential, no race.
+//   - The *flushing* buffer is mutated by the worker (Snapshot, then Clear)
+//     and may be read concurrently by foreground (via ProbeBuffer fall-through).
+//     The seqlock detects an in-progress Clear and forces the foreground
+//     reader to bail out (return OVERFLOW). This is safe because by the time
+//     Clear runs the worker has already InsertBatch'd those keys into LIPP,
+//     so a foreground LIPP-first lookup will find them.
 template <class KeyType, class SearchClass, size_t pgm_error>
 class DynamicPGMM3 : public Competitor<KeyType, SearchClass> {
  public:
@@ -28,17 +39,24 @@ class DynamicPGMM3 : public Competitor<KeyType, SearchClass> {
   }
 
   size_t EqualityLookup(const KeyType& key, uint32_t /*tid*/) const {
-    std::shared_lock<std::shared_mutex> guard(mu_);
+    // Seqlock optimistic read. Even generation = stable; odd = mutating.
+    uint64_t v1 = generation_.load(std::memory_order_acquire);
+    if (v1 & 1) return util::OVERFLOW;
     auto it = pgm_.find(key);
-    return it == pgm_.end() ? util::OVERFLOW : it->value();
+    size_t guess = (it == pgm_.end()) ? util::OVERFLOW : it->value();
+    std::atomic_thread_fence(std::memory_order_acquire);
+    uint64_t v2 = generation_.load(std::memory_order_acquire);
+    if (v1 != v2) return util::OVERFLOW;
+    return guess;
   }
 
   void Insert(const KeyValue<KeyType>& kv, uint32_t /*tid*/) {
-    std::unique_lock<std::shared_mutex> guard(mu_);
+    // Foreground-only path on the active buffer; no concurrent reader exists.
     pgm_.insert(kv.key, kv.value);
-    if (size_ == 0 || kv.key < min_key_) min_key_ = kv.key;
-    if (size_ == 0 || kv.key > max_key_) max_key_ = kv.key;
-    ++size_;
+    size_t cur = size_.load(std::memory_order_relaxed);
+    if (cur == 0 || kv.key < min_key_) min_key_ = kv.key;
+    if (cur == 0 || kv.key > max_key_) max_key_ = kv.key;
+    size_.store(cur + 1, std::memory_order_release);
   }
 
   size_t entry_count() const { return size_.load(std::memory_order_acquire); }
@@ -46,9 +64,10 @@ class DynamicPGMM3 : public Competitor<KeyType, SearchClass> {
   KeyType max_key() const { return max_key_; }
 
   void Snapshot(std::vector<std::pair<KeyType, uint64_t>>& out) const {
-    std::shared_lock<std::shared_mutex> guard(mu_);
+    // Worker-only on the flushing buffer; runs strictly before Clear and is
+    // the sole accessor at this moment, so iteration is safe lock-free.
     out.clear();
-    out.reserve(size_.load());
+    out.reserve(size_.load(std::memory_order_acquire));
     for (auto it = pgm_.lower_bound(std::numeric_limits<KeyType>::min());
          it != pgm_.end(); ++it) {
       out.emplace_back(it->key(), it->value());
@@ -56,11 +75,13 @@ class DynamicPGMM3 : public Competitor<KeyType, SearchClass> {
   }
 
   void Clear() {
-    std::unique_lock<std::shared_mutex> guard(mu_);
+    // Mark mutation start (odd), do the destructive write, mark stable (even).
+    generation_.fetch_add(1, std::memory_order_acq_rel);
     pgm_ = decltype(pgm_)();
     size_.store(0, std::memory_order_release);
     min_key_ = std::numeric_limits<KeyType>::max();
     max_key_ = std::numeric_limits<KeyType>::min();
+    generation_.fetch_add(1, std::memory_order_acq_rel);
   }
 
   std::string name() const { return "DynamicPGMM3"; }
@@ -76,7 +97,7 @@ class DynamicPGMM3 : public Competitor<KeyType, SearchClass> {
   }
 
  private:
-  mutable std::shared_mutex mu_;
+  std::atomic<uint64_t> generation_{0};
   DynamicPGMIndex<KeyType, uint64_t, SearchClass,
                   PGMIndex<KeyType, SearchClass, pgm_error, 16>> pgm_;
   std::atomic<size_t> size_{0};

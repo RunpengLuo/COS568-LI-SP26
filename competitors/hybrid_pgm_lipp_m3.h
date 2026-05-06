@@ -39,8 +39,8 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   uint64_t Build(const std::vector<KeyValue<KeyType>>& data, size_t num_threads) {
     flush_threshold_ = std::max<size_t>(
         1, (data.size() * flush_threshold_permille_) / 1000);
-    bloom_a_.Reset(flush_threshold_, bloom_bits_per_key_);
-    bloom_b_.Reset(flush_threshold_, bloom_bits_per_key_);
+    bloom_a_.Init(flush_threshold_, bloom_bits_per_key_);
+    bloom_b_.Init(flush_threshold_, bloom_bits_per_key_);
     active_.store(&dpgm_a_);
     active_bloom_.store(&bloom_a_);
     flushing_.store(&dpgm_b_);
@@ -193,7 +193,7 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
     dpgm->Snapshot(buf);
     if (!buf.empty()) lipp_.InsertBatch(buf);
     dpgm->Clear();
-    bloom->Reset(flush_threshold_, bloom_bits_per_key_);
+    bloom->Reset();
   }
 
   DPGM dpgm_a_;

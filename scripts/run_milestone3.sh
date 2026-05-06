@@ -10,13 +10,13 @@
 #   LIPP             -- baseline
 #   DynamicPGM       -- baseline (framework iterates its own variant sweep)
 #   HybridPGMLIPP    -- Milestone 2 hybrid (synchronous, key-by-key flush)
-#   HybridPGMLIPPM3  -- Milestone 3 hybrid with per-workload strategy:
-#     lookup-heavy : update_fast_path -- Contains() probe, route updates to
-#                    LIPP and genuinely-new keys to DPGM. bits=6, permille=5.
-#     insert-heavy : lipp_direct      -- skip Contains() and let LIPP handle
-#                    update-vs-insert internally; saves ~440 ns per insert
-#                    on workloads where most "inserts" are updates of
-#                    bulk-loaded keys. bits=6, permille=20.
+#   HybridPGMLIPPM3  -- Milestone 3 hybrid following the README's prescribed
+#                       design: all inserts buffer in DPGM, lookup probes
+#                       DPGM (Bloom-guarded) before falling through to LIPP,
+#                       async double-buffered flush at threshold. Per-workload
+#                       best params from the (bits x permille) sweep:
+#                         lookup-heavy : bits=6, permille=5
+#                         insert-heavy : bits=6, permille=20
 #
 # Output: results_m3_final/*.csv (one CSV per dataset x workload, all 4
 # indexes' rows in each).
@@ -65,26 +65,24 @@ for DATA in "${DATASETS[@]}"; do
     echo "=== Dataset: ${DATA} ==="
 
     # Baselines and M2 hybrid (default config; no env vars needed).
-    unset HYBRID_BLOOM_BITS HYBRID_FLUSH_PERMILLE HYBRID_INSERT_STRATEGY
+    unset HYBRID_BLOOM_BITS HYBRID_FLUSH_PERMILLE
     for INDEX in LIPP DynamicPGM HybridPGMLIPP; do
         run_one ${DATA} ${LOOKUP_HEAVY} ${INDEX}
         run_one ${DATA} ${INSERT_HEAVY} ${INDEX}
     done
 
-    # M3 hybrid: per-workload params and insert strategy.
+    # M3 hybrid: per-workload sweep-best params.
     export HYBRID_BLOOM_BITS=${M3_BITS}
 
     export HYBRID_FLUSH_PERMILLE=${M3_PERMILLE_LOOKUP}
-    export HYBRID_INSERT_STRATEGY=update_fast_path
-    echo "  M3 lookup-heavy: bits=${HYBRID_BLOOM_BITS}, permille=${HYBRID_FLUSH_PERMILLE}, strategy=${HYBRID_INSERT_STRATEGY}"
+    echo "  M3 lookup-heavy: bits=${HYBRID_BLOOM_BITS}, permille=${HYBRID_FLUSH_PERMILLE}"
     run_one ${DATA} ${LOOKUP_HEAVY} HybridPGMLIPPM3
 
     export HYBRID_FLUSH_PERMILLE=${M3_PERMILLE_INSERT}
-    export HYBRID_INSERT_STRATEGY=lipp_direct
-    echo "  M3 insert-heavy: bits=${HYBRID_BLOOM_BITS}, permille=${HYBRID_FLUSH_PERMILLE}, strategy=${HYBRID_INSERT_STRATEGY}"
+    echo "  M3 insert-heavy: bits=${HYBRID_BLOOM_BITS}, permille=${HYBRID_FLUSH_PERMILLE}"
     run_one ${DATA} ${INSERT_HEAVY} HybridPGMLIPPM3
 
-    unset HYBRID_BLOOM_BITS HYBRID_FLUSH_PERMILLE HYBRID_INSERT_STRATEGY
+    unset HYBRID_BLOOM_BITS HYBRID_FLUSH_PERMILLE
 done
 
 echo "===================Milestone 3 final run complete!===================="

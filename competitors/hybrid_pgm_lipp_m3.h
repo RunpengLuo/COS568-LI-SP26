@@ -28,6 +28,10 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
     } else if (params.size() >= 1 && params[0] > 0) {
       flush_threshold_permille_ = params[0] * 10;
     }
+    if (const char* env = std::getenv("HYBRID_BLOOM_BITS")) {
+      int v = std::atoi(env);
+      if (v > 0) bloom_bits_per_key_ = v;
+    }
   }
 
   ~HybridPGMLIPPM3() { Shutdown(); }
@@ -35,8 +39,8 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   uint64_t Build(const std::vector<KeyValue<KeyType>>& data, size_t num_threads) {
     flush_threshold_ = std::max<size_t>(
         1, (data.size() * flush_threshold_permille_) / 1000);
-    bloom_a_.Reset(flush_threshold_);
-    bloom_b_.Reset(flush_threshold_);
+    bloom_a_.Reset(flush_threshold_, bloom_bits_per_key_);
+    bloom_b_.Reset(flush_threshold_, bloom_bits_per_key_);
     active_.store(&dpgm_a_);
     active_bloom_.store(&bloom_a_);
     flushing_.store(&dpgm_b_);
@@ -86,7 +90,8 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   }
 
   std::vector<std::string> variants() const {
-    return {"async_bloom", std::to_string(flush_threshold_permille_)};
+    return {"async_bloom_b" + std::to_string(bloom_bits_per_key_),
+            std::to_string(flush_threshold_permille_)};
   }
 
  private:
@@ -168,7 +173,7 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
     dpgm->Snapshot(buf);
     if (!buf.empty()) lipp_.InsertBatch(buf);
     dpgm->Clear();
-    bloom->Reset(flush_threshold_);
+    bloom->Reset(flush_threshold_, bloom_bits_per_key_);
   }
 
   DPGM dpgm_a_;
@@ -192,4 +197,5 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
 
   size_t flush_threshold_ = 0;
   int flush_threshold_permille_ = 50;  // default 5%
+  int bloom_bits_per_key_ = 10;        // default 10 bits/key (~6-7 hashes, ~1% FPR)
 };

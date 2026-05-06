@@ -13,8 +13,12 @@ class BloomM3 {
     if (expected_keys == 0) expected_keys = 1;
     size_t bits = expected_keys * bits_per_key;
     bits = (bits + 63) & ~size_t{63};
+    // Optimal hash count for given bits/key is ~ln(2) * bits/key.
+    int hashes = static_cast<int>((bits_per_key * 69 + 50) / 100);
+    if (hashes < 1) hashes = 1;
     std::unique_lock<std::shared_mutex> guard(mu_);
     bits_ = bits;
+    num_hashes_ = hashes;
     words_.assign(bits / 64, 0);
   }
 
@@ -23,7 +27,7 @@ class BloomM3 {
     if (bits_ == 0) return;
     uint64_t h1 = Hash1(key);
     uint64_t h2 = Hash2(key);
-    for (int i = 0; i < kHashes; ++i) {
+    for (int i = 0; i < num_hashes_; ++i) {
       uint64_t pos = (h1 + uint64_t(i) * h2) % bits_;
       words_[pos >> 6] |= (uint64_t{1} << (pos & 63));
     }
@@ -34,7 +38,7 @@ class BloomM3 {
     if (bits_ == 0) return false;
     uint64_t h1 = Hash1(key);
     uint64_t h2 = Hash2(key);
-    for (int i = 0; i < kHashes; ++i) {
+    for (int i = 0; i < num_hashes_; ++i) {
       uint64_t pos = (h1 + uint64_t(i) * h2) % bits_;
       if (!(words_[pos >> 6] & (uint64_t{1} << (pos & 63)))) return false;
     }
@@ -47,8 +51,6 @@ class BloomM3 {
   }
 
  private:
-  static constexpr int kHashes = 6;
-
   static uint64_t Hash1(uint64_t x) {
     x ^= x >> 33;
     x *= 0xff51afd7ed558ccdULL;
@@ -67,5 +69,6 @@ class BloomM3 {
 
   mutable std::shared_mutex mu_;
   size_t bits_ = 0;
+  int num_hashes_ = 6;
   std::vector<uint64_t> words_;
 };

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -21,14 +22,19 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
  public:
   HybridPGMLIPPM3(const std::vector<int>& params)
       : dpgm_a_(params), dpgm_b_(params), lipp_(params) {
-    flush_threshold_pct_ = (params.size() >= 1 && params[0] > 0) ? params[0] : 5;
+    if (const char* env = std::getenv("HYBRID_FLUSH_PERMILLE")) {
+      int v = std::atoi(env);
+      if (v > 0) flush_threshold_permille_ = v;
+    } else if (params.size() >= 1 && params[0] > 0) {
+      flush_threshold_permille_ = params[0] * 10;
+    }
   }
 
   ~HybridPGMLIPPM3() { Shutdown(); }
 
   uint64_t Build(const std::vector<KeyValue<KeyType>>& data, size_t num_threads) {
     flush_threshold_ = std::max<size_t>(
-        1, (data.size() * flush_threshold_pct_) / 100);
+        1, (data.size() * flush_threshold_permille_) / 1000);
     bloom_a_.Reset(flush_threshold_);
     bloom_b_.Reset(flush_threshold_);
     active_.store(&dpgm_a_);
@@ -80,7 +86,7 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   }
 
   std::vector<std::string> variants() const {
-    return {"async_bloom", std::to_string(flush_threshold_pct_)};
+    return {"async_bloom", std::to_string(flush_threshold_permille_)};
   }
 
  private:
@@ -185,5 +191,5 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   std::atomic<bool> flush_in_progress_{false};
 
   size_t flush_threshold_ = 0;
-  int flush_threshold_pct_ = 5;
+  int flush_threshold_permille_ = 50;  // default 5%
 };

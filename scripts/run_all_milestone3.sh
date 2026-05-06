@@ -17,8 +17,8 @@ echo "Step 3: Generating workloads..."
 echo "Step 4: Building benchmarks (baseline + m3)..."
 ./scripts/build_benchmark.sh
 
-echo "Step 5: Running Milestone 3 benchmarks (mixed workloads, all datasets)..."
-./scripts/run_benchmarks_milestone3.sh
+echo "Step 5: Running Milestone 3 benchmarks (LIPP, DPGM, M2 hybrid, M3 hybrid; all datasets x mixed workloads)..."
+./scripts/run_milestone3.sh
 
 echo "=== Milestone 3 Benchmark completed successfully ==="
-echo "Check results in the 'results_m3' directory."
+echo "Check results in the 'results_m3_final' directory."

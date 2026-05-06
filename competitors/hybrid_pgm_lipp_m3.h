@@ -204,6 +204,11 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   std::atomic<bool> flush_in_progress_{false};
 
   size_t flush_threshold_ = 0;
-  int flush_threshold_permille_ = 50;  // default 5%
-  int bloom_bits_per_key_ = 10;        // default 10 bits/key (~6-7 hashes, ~1% FPR)
+  // Defaults below are the per-workload best from the (bits x permille) sweep,
+  // overridable via HYBRID_FLUSH_PERMILLE / HYBRID_BLOOM_BITS env vars.
+  // bits=6 is the sweep winner across all 4 (dataset x workload) cases;
+  // permille=5 is best for lookup-heavy, permille=20 is best for insert-heavy.
+  // Default to 5 because the lookup-heavy gap to LIPP is larger.
+  int flush_threshold_permille_ = 5;
+  int bloom_bits_per_key_ = 6;
 };

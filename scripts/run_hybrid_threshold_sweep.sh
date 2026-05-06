@@ -20,7 +20,7 @@ fi
 DATASETS=(
     "fb_100M_public_uint64"
     "books_100M_public_uint64"
-    "osmc_100M_uint64"
+    "osmc_100M_public_uint64"
 )
 
 PERMILLES=(5 10 20 50)

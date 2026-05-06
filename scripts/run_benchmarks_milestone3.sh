@@ -13,7 +13,7 @@ mkdir -p ./results ./results_m3
 DATASETS=(
     "fb_100M_public_uint64"
     "books_100M_public_uint64"
-    "osmc_100M_uint64"
+    "osmc_100M_public_uint64"
 )
 
 run_one () {

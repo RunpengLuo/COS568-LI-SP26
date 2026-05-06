@@ -26,7 +26,7 @@ PERMILLES=(5 20 50)
 DATASETS=(
     "fb_100M_public_uint64"
     "books_100M_public_uint64"
-    "osmc_100M_uint64"
+    "osmc_100M_public_uint64"
 )
 
 mkdir -p ./results

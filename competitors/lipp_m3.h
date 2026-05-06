@@ -26,6 +26,11 @@ class LippM3 : public Base<KeyType> {
     return value;
   }
 
+  bool Contains(const KeyType& key) const {
+    std::shared_lock<std::shared_mutex> guard(mu_);
+    return lipp_.exists(key);
+  }
+
   void Insert(const KeyValue<KeyType>& kv, uint32_t /*tid*/) {
     std::unique_lock<std::shared_mutex> guard(mu_);
     lipp_.insert(kv.key, kv.value);

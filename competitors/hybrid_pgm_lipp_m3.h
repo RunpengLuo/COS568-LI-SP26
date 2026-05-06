@@ -75,6 +75,18 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   }
 
   void Insert(const KeyValue<KeyType>& kv, uint32_t tid) {
+    // Update fast-path: if the key is already in LIPP (bulk-loaded or
+    // previously flushed), do an in-place value swap there directly
+    // (~730 ns) instead of routing through DPGM (~2 us) and re-inserting
+    // into LIPP at flush time. This is workload-adaptive: for inserts of
+    // genuinely new keys (key not in LIPP) we still buffer in DPGM and
+    // amortize via async flush, which is the original hybrid design.
+    if (lipp_.Contains(kv.key)) {
+      lipp_.Insert(kv, tid);
+      return;
+    }
+
+    // New-key path: buffer in DPGM as the design prescribes.
     DPGM* active = active_.load(std::memory_order_acquire);
     BloomM3* abloom = active_bloom_.load(std::memory_order_acquire);
     active->Insert(kv, tid);

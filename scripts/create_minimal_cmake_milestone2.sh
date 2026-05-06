@@ -18,7 +18,7 @@ if(UNIX AND NOT APPLE)
     set(LINUX TRUE)
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -Wall -Wfatal-errors -march=x86-64-v3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -Wall -Wfatal-errors -march=native")
 
 include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag(-fopenmp HAS_OPENMP)

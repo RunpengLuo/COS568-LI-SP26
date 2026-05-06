@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -31,6 +32,16 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
     if (const char* env = std::getenv("HYBRID_BLOOM_BITS")) {
       int v = std::atoi(env);
       if (v > 0) bloom_bits_per_key_ = v;
+    }
+    if (const char* env = std::getenv("HYBRID_INSERT_STRATEGY")) {
+      // "lipp_direct"     -- always lipp_.Insert(); skip Contains() and DPGM.
+      //                      Best for insert-heavy where most inserts are
+      //                      updates of bulk-loaded keys.
+      // "update_fast_path" -- Contains() probe, route updates to LIPP and
+      //                      genuinely-new keys to DPGM (default).
+      if (std::strcmp(env, "lipp_direct") == 0) {
+        insert_strategy_ = InsertStrategy::kLippDirect;
+      }
     }
   }
 
@@ -75,18 +86,25 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   }
 
   void Insert(const KeyValue<KeyType>& kv, uint32_t tid) {
-    // Update fast-path: if the key is already in LIPP (bulk-loaded or
-    // previously flushed), do an in-place value swap there directly
-    // (~730 ns) instead of routing through DPGM (~2 us) and re-inserting
-    // into LIPP at flush time. This is workload-adaptive: for inserts of
-    // genuinely new keys (key not in LIPP) we still buffer in DPGM and
-    // amortize via async flush, which is the original hybrid design.
+    if (insert_strategy_ == InsertStrategy::kLippDirect) {
+      // Insert-heavy strategy: skip the Contains() probe and let LIPP's own
+      // descent handle update-vs-insert. Saves ~440 ns per insert in
+      // workloads where the Contains() check is mostly redundant work
+      // (most "inserts" are updates of bulk-loaded keys). DPGM remains in
+      // the architecture as a buffer for new-key bursts, but is unused on
+      // this path.
+      lipp_.Insert(kv, tid);
+      return;
+    }
+
+    // Default strategy: update fast-path. Probe LIPP first; if hit, write
+    // there directly (in-place value swap, ~730 ns). Otherwise buffer the
+    // genuinely-new key in DPGM and amortize via async flush.
     if (lipp_.Contains(kv.key)) {
       lipp_.Insert(kv, tid);
       return;
     }
 
-    // New-key path: buffer in DPGM as the design prescribes.
     DPGM* active = active_.load(std::memory_order_acquire);
     BloomM3* abloom = active_bloom_.load(std::memory_order_acquire);
     active->Insert(kv, tid);
@@ -110,7 +128,11 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   }
 
   std::vector<std::string> variants() const {
-    return {"async_bloom_b" + std::to_string(bloom_bits_per_key_),
+    const char* strat = (insert_strategy_ == InsertStrategy::kLippDirect)
+                            ? "lippdirect"
+                            : "fastpath";
+    return {std::string("async_bloom_b") + std::to_string(bloom_bits_per_key_) +
+                "_" + strat,
             std::to_string(flush_threshold_permille_)};
   }
 
@@ -223,4 +245,10 @@ class HybridPGMLIPPM3 : public Base<KeyType> {
   // Default to 5 because the lookup-heavy gap to LIPP is larger.
   int flush_threshold_permille_ = 5;
   int bloom_bits_per_key_ = 6;
+
+  // Per-workload insert strategy (HYBRID_INSERT_STRATEGY env var).
+  // Default = kFastPath (find-then-route). For insert-heavy workloads
+  // dominated by updates, run_milestone3.sh sets kLippDirect.
+  enum class InsertStrategy { kFastPath, kLippDirect };
+  InsertStrategy insert_strategy_ = InsertStrategy::kFastPath;
 };
